@@ -1,0 +1,13 @@
+[Unit]
+Description=2fu: 2FA SMS code relay
+After=network-online.target
+
+[Service]
+Type=simple
+# Point this at your checkout of server.py:
+ExecStart=/usr/bin/python3 %h/2fu/server.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
