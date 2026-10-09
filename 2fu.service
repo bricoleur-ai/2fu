@@ -4,6 +4,9 @@ After=network-online.target
 
 [Service]
 Type=simple
+# Optional settings (TWOFU_CLIENTS, TWOFU_PORT, TWOFU_TTL_SECONDS); see 2fu.env.example.
+# The leading "-" means a missing file is fine and the defaults apply.
+EnvironmentFile=-%h/.config/2fu/env
 # Point this at your checkout of server.py:
 ExecStart=/usr/bin/python3 %h/2fu/server.py
 Restart=on-failure
