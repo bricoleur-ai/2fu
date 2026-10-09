@@ -12,7 +12,7 @@ sequenceDiagram
     participant R as 2fu
     participant C as Your program
     P->>R: POST /sms {"message": "Your code is 123456"}
-    Note over R: keeps 123456 in memory, five minutes at most
+    Note over R: keeps 123456 in memory, briefly
     C->>R: GET /code?client=my-client
     R-->>C: 200 {"code": "123456"}, then forgets it
 ```
@@ -21,7 +21,7 @@ sequenceDiagram
 
 - Takes the text of a 2FA SMS that your phone forwards, and finds the code in it.
 - Hands that code to the first allowlisted program that asks, then forgets it.
-- Holds it in memory for five minutes at most. One Python file, standard library only, nothing
+- Holds it in memory only briefly: five minutes by default. One Python file, standard library only, nothing
   written to disk.
 
 ## Quick start
@@ -55,8 +55,10 @@ it, and the design notes are in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## What it deliberately does not do
 
-- **No authentication on `POST /sms`.** Anyone on your network can post a bogus code. Nobody
-  outside the allowlist can read a real one.
+- **No authentication.** `POST /sms` accepts any message, so anyone on your network can post a
+  bogus code, even replacing a real one that is waiting. `GET /code` asks only for a client
+  *name*: it keeps out programs you didn't name, but a name is not a password, and anyone on the
+  network who knows or guesses one can fetch the waiting code.
 - **No TLS.** Keep it on a network you trust (LAN, VPN, Tailscale), never on the open internet.
 - **No storage and no queue.** One code at a time, in memory; a restart drops it.
 - **No access to your messages.** It sees only what your phone chooses to forward.
@@ -82,7 +84,7 @@ A value 2fu cannot use stops it at start, with a message naming the variable.
 | Request | Result |
 |---|---|
 | `POST /sms` with JSON `{"message": "<full SMS text>"}` | `204` code stored · `422` no code found · `400` bad body · `413` body over 16 KB |
-| `GET /code?client=<name>` | `200 {"code":"123456"}` and the code is dropped · `403` unknown client · `404` nothing pending |
+| `GET /code?client=<name>` | `200 {"code": "123456"}` and the code is dropped · `403` unknown client · `404` nothing pending |
 
 Programs poll `GET /code` until they get a `200`. The client name is checked first, so an unknown
 caller cannot even tell whether a code is waiting. Names match exactly, including case.
@@ -98,7 +100,7 @@ joined. A message with no such number gets `422`, and any code already waiting i
 1. Shortcuts app → **Automation** → **＋** → **Message**.
 2. **Message Contains** a word your 2FA texts share, for example `code`. Choose **Run Immediately**.
 3. Add **Get Contents of URL**.
-4. URL: `http://<your-2fu-host>:8787/sms`.
+4. URL: `http://<your-2fu-host>:8787/sms` (or your `TWOFU_PORT`).
 5. Method `POST`, Request Body `JSON`, one field `message` set to the **Shortcut Input** (the
    incoming message).
 
@@ -117,8 +119,9 @@ loginctl enable-linger "$USER"   # so it runs without a login session
 journalctl --user -u 2fu -n 5    # shows "listening on port …" once it is up
 ```
 
-The log records events only: a code stored, a code served (and to which client), a fetch denied.
-It never contains a code or the message text.
+The log records events only: a code stored, a code served (and to which client), a fetch denied
+(with the name offered), and a message with no code. It never contains a code or the message
+text.
 
 ## Tests
 

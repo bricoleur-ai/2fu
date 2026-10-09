@@ -4,7 +4,7 @@
 
 A phone forwards the text of each incoming 2FA SMS to this service. The service
 extracts the code and holds it in memory. A consumer fetches the code by naming
-itself; if the name is on a hardcoded allowlist it gets the code, and the code is
+itself; if the name is on an allowlist (`TWOFU_CLIENTS`) it gets the code, and the code is
 then dropped. Success means a consumer that has just triggered a login can poll
 and receive the code within a second or two of the text arriving, with no code
 ever touching disk and no code served twice.
@@ -13,6 +13,12 @@ ever touching disk and no code served twice.
 
 A single Python file using only the standard library (`http.server` with
 `ThreadingHTTPServer`). No dependencies, no build step.
+
+## Configuration
+
+The three `TWOFU_*` variables (`TWOFU_CLIENTS`, `TWOFU_PORT`, `TWOFU_TTL_SECONDS`)
+override the defaults in `server.py`. A blank value means the default. A value 2fu
+cannot use stops it at start, with a message naming the variable.
 
 ## API
 
@@ -58,7 +64,7 @@ separated by one hyphen or space (joined).
 
 One slot holding `(code, stored_at)` guarded by a lock. Reading and clearing
 happen under the same lock, so two simultaneous fetches can't both receive the
-code. `stored_at` uses a monotonic clock; a code older than `TTL_SECONDS` is
+code. `stored_at` uses a monotonic clock; a code older than `TWOFU_TTL_SECONDS` (default 300) is
 treated as absent. Nothing is persisted.
 
 ## Logging
@@ -74,3 +80,5 @@ and the message text are never logged.
   they can't read a real one.
 - Long-polling (consumers poll), per-client slots, a queue of codes, and TLS.
   Keep the service on a trusted network.
+- Secret client names. A client name is a label, not a credential; anyone on the
+  network who knows one can fetch a waiting code.
