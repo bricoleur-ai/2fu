@@ -1,9 +1,22 @@
 import http.client
 import json
+import os
+import socket
+import subprocess
+import sys
 import threading
+import time
 import unittest
 
 import server
+
+SERVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "server.py")
+
+
+def _free_port():
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
 
 
 class ParseCodeTest(unittest.TestCase):
@@ -205,6 +218,72 @@ class HttpTest(unittest.TestCase):
         self.assertNotIn("lunch", output)
         self.assertIn("alice", output)
         self.assertIn("mallory", output)
+
+
+class SettingsTest(unittest.TestCase):
+    DEFAULTS = (frozenset(server.CLIENTS), server.PORT, server.TTL_SECONDS)
+
+    def test_defaults_when_nothing_is_set(self):
+        self.assertEqual(server.settings_from_env({}), self.DEFAULTS)
+
+    def test_empty_values_count_as_unset(self):
+        env = {"TWOFU_CLIENTS": " ", "TWOFU_PORT": "", "TWOFU_TTL_SECONDS": ""}
+        self.assertEqual(server.settings_from_env(env), self.DEFAULTS)
+
+    def test_values_from_the_environment(self):
+        env = {"TWOFU_CLIENTS": "laptop, browser ,cron", "TWOFU_PORT": "9000", "TWOFU_TTL_SECONDS": "60"}
+        self.assertEqual(
+            server.settings_from_env(env),
+            (frozenset({"laptop", "browser", "cron"}), 9000, 60),
+        )
+
+    def test_unusable_values_are_refused_by_name(self):
+        cases = [
+            ("TWOFU_CLIENTS", ",,"),
+            ("TWOFU_PORT", "http"),
+            ("TWOFU_PORT", "0"),
+            ("TWOFU_PORT", "65536"),
+            ("TWOFU_TTL_SECONDS", "0"),
+            ("TWOFU_TTL_SECONDS", "-5"),
+            ("TWOFU_TTL_SECONDS", "1.5"),
+        ]
+        for name, value in cases:
+            with self.subTest(name=name, value=value):
+                with self.assertRaisesRegex(ValueError, "^" + name):
+                    server.settings_from_env({name: value})
+
+
+class StartupTest(unittest.TestCase):
+    def test_an_unusable_setting_stops_the_server_with_its_name(self):
+        env = {**os.environ, "TWOFU_PORT": "http"}
+        result = subprocess.run(
+            [sys.executable, SERVER], env=env, capture_output=True, text=True, timeout=10
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TWOFU_PORT", result.stderr)
+
+    def test_the_server_listens_and_allows_what_the_environment_says(self):
+        port = _free_port()
+        env = {**os.environ, "TWOFU_PORT": str(port), "TWOFU_CLIENTS": "laptop", "TWOFU_TTL_SECONDS": "60"}
+        proc = subprocess.Popen([sys.executable, SERVER], env=env, stderr=subprocess.PIPE, text=True)
+        try:
+            status = {}
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not status:
+                try:
+                    for client in ("laptop", "my-client"):
+                        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+                        conn.request("GET", "/code?client=" + client)
+                        status[client] = conn.getresponse().status
+                        conn.close()
+                except ConnectionRefusedError:
+                    status = {}
+                    time.sleep(0.05)
+            self.assertEqual(status, {"laptop": 404, "my-client": 403})
+        finally:
+            proc.terminate()
+            _, err = proc.communicate(timeout=5)
+        self.assertIn(f"listening on port {port}, clients: laptop, codes live 60s", err)
 
 
 if __name__ == "__main__":

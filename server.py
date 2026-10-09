@@ -3,14 +3,18 @@
 
 import json
 import logging
+import os
 import re
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-# Names your consumers present as ?client=<name>. Only these may fetch a code.
-# Edit this to your own consumer name(s).
+# Defaults. Each can be overridden from the environment (see settings_from_env):
+# TWOFU_CLIENTS  names your consumers present as ?client=<name>, comma-separated; only these may fetch a code
+# TWOFU_PORT     the port to listen on, on all interfaces
+# TWOFU_TTL_SECONDS  how long an unfetched code lives
 CLIENTS = {"my-client"}
 PORT = 8787
 TTL_SECONDS = 300
@@ -128,6 +132,37 @@ class Server(ThreadingHTTPServer):
     request_queue_size = 64
 
 
+def settings_from_env(environ):
+    """Return (clients, port, ttl) from TWOFU_* variables, with the constants above as defaults.
+
+    A variable that is unset or blank means "use the default". A value that cannot be used raises
+    ValueError, with a message that starts with the variable's name.
+    """
+    clients = CLIENTS
+    raw = environ.get("TWOFU_CLIENTS", "")
+    if raw.strip():
+        clients = {name.strip() for name in raw.split(",") if name.strip()}
+        if not clients:
+            raise ValueError(f"TWOFU_CLIENTS must name at least one client, got {raw!r}")
+    port = _whole_number(environ, "TWOFU_PORT", PORT, low=1, high=65535)
+    ttl = _whole_number(environ, "TWOFU_TTL_SECONDS", TTL_SECONDS, low=1)
+    return frozenset(clients), port, ttl
+
+
+def _whole_number(environ, name, default, low, high=None):
+    raw = environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be a whole number, got {raw!r}") from None
+    if value < low or (high is not None and value > high):
+        limits = f"from {low} to {high}" if high is not None else f"at least {low}"
+        raise ValueError(f"{name} must be {limits}, got {value}")
+    return value
+
+
 def make_server(port=PORT, clients=CLIENTS, ttl=TTL_SECONDS, clock=time.monotonic):
     server = Server(("0.0.0.0", port), Handler)
     server.clients = frozenset(clients)
@@ -137,8 +172,12 @@ def make_server(port=PORT, clients=CLIENTS, ttl=TTL_SECONDS, clock=time.monotoni
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    server = make_server()
-    log.info("listening on port %d, clients: %s", PORT, ", ".join(sorted(CLIENTS)))
+    try:
+        clients, port, ttl = settings_from_env(os.environ)
+    except ValueError as error:
+        sys.exit(f"2fu: {error}")
+    server = make_server(port, clients, ttl)
+    log.info("listening on port %d, clients: %s, codes live %ds", port, ", ".join(sorted(clients)), ttl)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
