@@ -110,6 +110,7 @@ that can POST JSON works as well.
 ## Run as a service (Linux, systemd user unit)
 
 ```sh
+mkdir -p ~/.config/systemd/user
 cp 2fu.service ~/.config/systemd/user/
 mkdir -p ~/.config/2fu && cp 2fu.env.example ~/.config/2fu/env   # then edit it
 # edit ExecStart in ~/.config/systemd/user/2fu.service to point at your checkout
