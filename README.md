@@ -3,7 +3,7 @@
 **Hand a 2FA text-message code to one known program, once.**
 
 <!-- bricoleur:intro -->
-> Part of **[bricoleur.ai](https://bricoleur.ai)**: small, honest tools cobbled together from the AI-era parts at hand.
+> Part of **[bricoleur.ai](https://bricoleur.ai)**: small, honest tools cobbled together from the AI-era parts at hand. Related: **[capurnion](https://github.com/bricoleur-ai/capurnion)**, the browser extension that uses 2fu to finish Okta sign-ins.
 <!-- /bricoleur:intro -->
 
 ```mermaid
